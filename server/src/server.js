@@ -23,12 +23,12 @@ const server = http.createServer(app);
 
 // ========== CORS Configuration ==========
 const allowedOrigins = [
-  'https://realtime-collab-platform-gilt.vercel.app',
-  'https://real-time-collab-platform.vercel.app',
-  'https://realtime-collab-platform-gilt.vercel.app/login',
-  'https://real-time-collab-platform.vercel.app/login',
-  'http://localhost:5173',
-  'http://localhost:3000',
+  'https://real-time-collabplatform.vercel.app',        // Your new Vercel URL
+  'https://real-time-collabplatform-gilt.vercel.app',   // Alternative
+  'https://realtime-collab-platform-gilt.vercel.app',   // Original
+  'https://real-time-collab-platform.vercel.app',       // Another variant
+  'http://localhost:5173',                              // Local Vite
+  'http://localhost:3000',                              // Local React
 ];
 
 // CORS middleware for Express
@@ -64,7 +64,7 @@ const io = new Server(server, {
     credentials: true,
     methods: ["GET", "POST"]
   },
-  transports: ['websocket', 'polling'], // Fallback for compatibility
+  transports: ['websocket', 'polling'],
 });
 
 // Make io accessible to routes
@@ -89,9 +89,15 @@ app.use('/api/messages', messageRoutes);
 app.use('/api/meetings', meetingRoutes);
 app.use('/api/notifications', notificationRoutes);
 
-// Health check
+// ========== Health & Root Routes ==========
+
+// Health check endpoint
 app.get('/health', (req, res) => {
-  res.json({ status: 'OK', message: 'Server is running' });
+  res.json({ 
+    status: 'OK', 
+    message: 'Server is running',
+    timestamp: new Date().toISOString()
+  });
 });
 
 // Root route - API info
@@ -100,19 +106,78 @@ app.get('/', (req, res) => {
     message: '🚀 Real-Time Collaboration Platform API',
     version: '1.0.0',
     status: '✅ Server is running',
+    environment: process.env.NODE_ENV || 'production',
     endpoints: {
-      auth: '/api/auth',
-      users: '/api/users',
-      workspaces: '/api/workspaces',
-      channels: '/api/channels',
-      messages: '/api/messages',
-      meetings: '/api/meetings',
-      notifications: '/api/notifications',
+      auth: {
+        register: 'POST /api/auth/register',
+        login: 'POST /api/auth/login',
+        status: 'PUT /api/auth/status',
+      },
+      users: {
+        profile: 'GET /api/users/profile',
+      },
+      workspaces: {
+        create: 'POST /api/workspaces',
+        list: 'GET /api/workspaces',
+      },
+      channels: {
+        create: 'POST /api/channels',
+        messages: 'GET /api/channels/:id/messages',
+      },
+      messages: {
+        send: 'POST /api/messages',
+      },
+      meetings: {
+        create: 'POST /api/meetings/create',
+      },
+      notifications: {
+        list: 'GET /api/notifications',
+      },
     },
     websocket: {
       status: '✅ Socket.IO ready',
-      events: ['join-workspace', 'join-channel', 'send-message', 'typing', 'call-user', 'accept-call', 'reject-call', 'end-call', 'ice-candidate']
-    }
+      endpoints: {
+        connection: 'ws://real-time-collab-platform.onrender.com',
+      },
+      events: [
+        'join-workspace',
+        'join-channel', 
+        'leave-channel',
+        'send-message',
+        'typing',
+        'call-user',
+        'accept-call',
+        'reject-call',
+        'end-call',
+        'ice-candidate',
+        'join-meeting',
+        'leave-meeting',
+        'meeting-participants',
+      ],
+    },
+    cors: {
+      allowedOrigins: allowedOrigins,
+    },
+    mongodb: {
+      status: mongoose.connection.readyState === 1 ? '✅ Connected' : '❌ Disconnected',
+    },
+  });
+});
+
+// 404 handler for undefined routes
+app.use((req, res) => {
+  res.status(404).json({
+    error: 'Route not found',
+    message: `Cannot ${req.method} ${req.url}`,
+  });
+});
+
+// Global error handler
+app.use((err, req, res, next) => {
+  console.error('❌ Error:', err.stack);
+  res.status(500).json({
+    error: 'Internal Server Error',
+    message: err.message || 'Something went wrong',
   });
 });
 
@@ -120,7 +185,7 @@ app.get('/', (req, res) => {
 io.use((socket, next) => {
   const token = socket.handshake.auth.token;
   if (!token) {
-    console.log('❌ No token provided');
+    console.log('❌ No token provided for socket connection');
     return next(new Error('Authentication error'));
   }
   
@@ -128,9 +193,10 @@ io.use((socket, next) => {
     const jwt = require('jsonwebtoken');
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
     socket.userId = decoded.id;
+    console.log('✅ Socket authenticated for user:', socket.userId);
     next();
   } catch (err) {
-    console.log('❌ Invalid token:', err.message);
+    console.log('❌ Invalid token for socket connection:', err.message);
     next(new Error('Authentication error'));
   }
 });
@@ -309,60 +375,12 @@ io.on('connection', (socket) => {
   });
 });
 
-// Create basic route files that don't exist yet
-const routesDir = './src/routes';
-
-if (!fs.existsSync(`${routesDir}/userRoutes.js`)) {
-  fs.writeFileSync(`${routesDir}/userRoutes.js`, `
-const express = require('express');
-const router = express.Router();
-const { protect } = require('../middleware/authMiddleware');
-const User = require('../models/User');
-
-router.get('/profile', protect, async (req, res) => {
-  try {
-    const user = await User.findById(req.user.id).select('-password');
-    res.json({ success: true, user });
-  } catch (error) {
-    res.status(500).json({ message: 'Server error' });
-  }
-});
-
-module.exports = router;
-`);
-}
-
-if (!fs.existsSync(`${routesDir}/meetingRoutes.js`)) {
-  fs.writeFileSync(`${routesDir}/meetingRoutes.js`, `
-const express = require('express');
-const router = express.Router();
-const { protect } = require('../middleware/authMiddleware');
-
-router.post('/create', protect, async (req, res) => {
-  res.json({ message: 'Meeting routes - coming soon' });
-});
-
-module.exports = router;
-`);
-}
-
-if (!fs.existsSync(`${routesDir}/notificationRoutes.js`)) {
-  fs.writeFileSync(`${routesDir}/notificationRoutes.js`, `
-const express = require('express');
-const router = express.Router();
-const { protect } = require('../middleware/authMiddleware');
-
-router.get('/', protect, async (req, res) => {
-  res.json({ notifications: [] });
-});
-
-module.exports = router;
-`);
-}
-
 // ========== MongoDB Connection ==========
 mongoose.connect(process.env.MONGO_URI || 'mongodb://localhost:27017/collab')
-  .then(() => console.log('✅ MongoDB connected'))
+  .then(() => {
+    console.log('✅ MongoDB connected');
+    console.log(`📊 Database: ${mongoose.connection.db.databaseName}`);
+  })
   .catch(err => {
     console.error('❌ MongoDB connection error:', err);
     process.exit(1);
@@ -371,9 +389,10 @@ mongoose.connect(process.env.MONGO_URI || 'mongodb://localhost:27017/collab')
 // ========== Start Server ==========
 const PORT = process.env.PORT || 5000;
 server.listen(PORT, () => {
-  console.log(`🚀 Server running on port ${PORT}`);
-  console.log(`📍 http://localhost:${PORT}`);
+  console.log(`\n🚀 Server running on port ${PORT}`);
+  console.log(`📍 Local: http://localhost:${PORT}`);
   console.log(`📍 Production: https://real-time-collab-platform.onrender.com`);
+  console.log(`📍 Frontend: https://real-time-collabplatform.vercel.app`);
   console.log(`\n📡 Available Routes:`);
   console.log(`   POST   /api/auth/register`);
   console.log(`   POST   /api/auth/login`);
@@ -387,6 +406,32 @@ server.listen(PORT, () => {
   console.log(`   call-user, accept-call, reject-call, end-call, ice-candidate`);
   console.log(`\n📹 Meeting Room Events:`);
   console.log(`   join-meeting, leave-meeting, meeting-participants`);
+  console.log(`\n🔗 WebSocket:`);
+  console.log(`   ws://localhost:${PORT} or wss://real-time-collab-platform.onrender.com`);
   console.log(`\n✅ CORS allowed origins:`);
   allowedOrigins.forEach(origin => console.log(`   ${origin}`));
+  console.log(`\n🌐 Server is ready for connections!`);
+});
+
+// ========== Graceful Shutdown ==========
+process.on('SIGTERM', () => {
+  console.log('SIGTERM received, closing server...');
+  server.close(() => {
+    console.log('Server closed');
+    mongoose.connection.close(() => {
+      console.log('MongoDB connection closed');
+      process.exit(0);
+    });
+  });
+});
+
+process.on('SIGINT', () => {
+  console.log('SIGINT received, closing server...');
+  server.close(() => {
+    console.log('Server closed');
+    mongoose.connection.close(() => {
+      console.log('MongoDB connection closed');
+      process.exit(0);
+    });
+  });
 });
