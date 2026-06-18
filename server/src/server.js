@@ -20,11 +20,51 @@ dotenv.config();
 
 const app = express();
 const server = http.createServer(app);
+
+// ========== CORS Configuration ==========
+const allowedOrigins = [
+  'https://realtime-collab-platform-gilt.vercel.app',
+  'https://real-time-collab-platform.vercel.app',
+  'https://realtime-collab-platform-gilt.vercel.app/login',
+  'https://real-time-collab-platform.vercel.app/login',
+  'http://localhost:5173',
+  'http://localhost:3000',
+];
+
+// CORS middleware for Express
+app.use(cors({
+  origin: function (origin, callback) {
+    // Allow requests with no origin (like mobile apps or curl)
+    if (!origin) return callback(null, true);
+    
+    if (allowedOrigins.includes(origin)) {
+      callback(null, true);
+    } else {
+      console.log('❌ Blocked by CORS:', origin);
+      callback(new Error('Not allowed by CORS'));
+    }
+  },
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
+  exposedHeaders: ['Authorization'],
+}));
+
+// ========== Socket.IO Configuration ==========
 const io = new Server(server, {
   cors: {
-    origin: "http://localhost:5173",
-    credentials: true
-  }
+    origin: function (origin, callback) {
+      if (!origin) return callback(null, true);
+      if (allowedOrigins.includes(origin)) {
+        callback(null, true);
+      } else {
+        callback(new Error('Not allowed by CORS'));
+      }
+    },
+    credentials: true,
+    methods: ["GET", "POST"]
+  },
+  transports: ['websocket', 'polling'], // Fallback for compatibility
 });
 
 // Make io accessible to routes
@@ -33,18 +73,14 @@ app.set('io', io);
 // Store meeting participants
 const meetingParticipants = new Map(); // meetingId -> Map of socketId -> { userId, userName }
 
-// Middleware
-app.use(cors({
-  origin: 'http://localhost:5173',
-  credentials: true
-}));
+// ========== Express Middleware ==========
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
 // Serve uploaded files statically
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
-// Routes
+// ========== Routes ==========
 app.use('/api/auth', authRoutes);
 app.use('/api/users', userRoutes);
 app.use('/api/workspaces', workspaceRoutes);
@@ -58,10 +94,33 @@ app.get('/health', (req, res) => {
   res.json({ status: 'OK', message: 'Server is running' });
 });
 
-// Socket.io connection handling with Authentication
+// Root route - API info
+app.get('/', (req, res) => {
+  res.json({
+    message: '🚀 Real-Time Collaboration Platform API',
+    version: '1.0.0',
+    status: '✅ Server is running',
+    endpoints: {
+      auth: '/api/auth',
+      users: '/api/users',
+      workspaces: '/api/workspaces',
+      channels: '/api/channels',
+      messages: '/api/messages',
+      meetings: '/api/meetings',
+      notifications: '/api/notifications',
+    },
+    websocket: {
+      status: '✅ Socket.IO ready',
+      events: ['join-workspace', 'join-channel', 'send-message', 'typing', 'call-user', 'accept-call', 'reject-call', 'end-call', 'ice-candidate']
+    }
+  });
+});
+
+// ========== Socket.IO Authentication ==========
 io.use((socket, next) => {
   const token = socket.handshake.auth.token;
   if (!token) {
+    console.log('❌ No token provided');
     return next(new Error('Authentication error'));
   }
   
@@ -71,10 +130,12 @@ io.use((socket, next) => {
     socket.userId = decoded.id;
     next();
   } catch (err) {
+    console.log('❌ Invalid token:', err.message);
     next(new Error('Authentication error'));
   }
 });
 
+// ========== Socket.IO Events ==========
 io.on('connection', (socket) => {
   console.log('✅ User connected:', socket.userId);
   
@@ -299,7 +360,7 @@ module.exports = router;
 `);
 }
 
-// Connect to MongoDB
+// ========== MongoDB Connection ==========
 mongoose.connect(process.env.MONGO_URI || 'mongodb://localhost:27017/collab')
   .then(() => console.log('✅ MongoDB connected'))
   .catch(err => {
@@ -307,10 +368,12 @@ mongoose.connect(process.env.MONGO_URI || 'mongodb://localhost:27017/collab')
     process.exit(1);
   });
 
+// ========== Start Server ==========
 const PORT = process.env.PORT || 5000;
 server.listen(PORT, () => {
   console.log(`🚀 Server running on port ${PORT}`);
   console.log(`📍 http://localhost:${PORT}`);
+  console.log(`📍 Production: https://real-time-collab-platform.onrender.com`);
   console.log(`\n📡 Available Routes:`);
   console.log(`   POST   /api/auth/register`);
   console.log(`   POST   /api/auth/login`);
@@ -324,4 +387,6 @@ server.listen(PORT, () => {
   console.log(`   call-user, accept-call, reject-call, end-call, ice-candidate`);
   console.log(`\n📹 Meeting Room Events:`);
   console.log(`   join-meeting, leave-meeting, meeting-participants`);
+  console.log(`\n✅ CORS allowed origins:`);
+  allowedOrigins.forEach(origin => console.log(`   ${origin}`));
 });
