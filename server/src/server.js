@@ -23,12 +23,10 @@ const server = http.createServer(app);
 
 // ========== CORS Configuration ==========
 const allowedOrigins = [
-  'https://real-time-collabplatform.vercel.app',        // Your new Vercel URL
-  'https://real-time-collabplatform-gilt.vercel.app',   // Alternative
-  'https://realtime-collab-platform-gilt.vercel.app',   // Original
-  'https://real-time-collab-platform.vercel.app',       // Another variant
-  'http://localhost:5173',                              // Local Vite
-  'http://localhost:3000',                              // Local React
+  'https://real-timecollabplatform.vercel.app',        // Your new Vercel URL
+  'https://real-timecollabplatform.vercel.app/',   // Alternative
+       // Another variant
+  
 ];
 
 // CORS middleware for Express
