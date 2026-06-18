@@ -14,5 +14,9 @@ export default defineConfig({
   },
   optimizeDeps: {
     include: ['react', 'react-dom', 'react-router-dom', 'socket.io-client', 'emoji-picker-react']
+  },
+  // ✅ Add this to ensure environment variables work in production
+  define: {
+    'import.meta.env.VITE_API_URL': JSON.stringify(process.env.VITE_API_URL)
   }
 })
